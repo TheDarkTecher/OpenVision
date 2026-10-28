@@ -1,0 +1,136 @@
+# Manual private-repository build for installing OpenVision with Sideloadly.
+# Never run a Meta-configured build in a public repository: the resulting IPA
+# necessarily contains the Meta client token, which can be extracted by anyone
+# with access to the artifact, regardless of how GitHub Actions stores secrets.
+name: Project Aria - Private iPhone IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Verify private repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reject public repository
+        env:
+          REPOSITORY_IS_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ "$REPOSITORY_IS_PRIVATE" != "true" ]; then
+            echo "::error::Configured IPAs contain an embedded Meta client token. Copy this project to a standalone PRIVATE repository before running this workflow."
+            exit 1
+          fi
+
+  build:
+    name: Build configured unsigned IPA
+    needs: preflight
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create gitignored configuration from private settings
+        env:
+          META_APP_ID_SECRET: ${{ secrets.META_APP_ID }}
+          META_CLIENT_TOKEN_SECRET: ${{ secrets.META_CLIENT_TOKEN }}
+          APPLE_TEAM_ID_VARIABLE: ${{ vars.APPLE_TEAM_ID }}
+          IOS_BUNDLE_ID_VARIABLE: ${{ vars.IOS_BUNDLE_ID }}
+          APP_LINK_URL_SCHEME_VARIABLE: ${{ vars.APP_LINK_URL_SCHEME }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          app_id = os.environ.get("META_APP_ID_SECRET", "").strip()
+          client_token = os.environ.get("META_CLIENT_TOKEN_SECRET", "").strip()
+          apple_team = os.environ.get("APPLE_TEAM_ID_VARIABLE", "").strip()
+          bundle_id = os.environ.get("IOS_BUNDLE_ID_VARIABLE", "").strip()
+          url_scheme = os.environ.get("APP_LINK_URL_SCHEME_VARIABLE", "").strip() or "openvision"
+          fields = {
+              "META_APP_ID": app_id,
+              "META_CLIENT_TOKEN": client_token,
+              "APPLE_TEAM_ID": apple_team,
+              "IOS_BUNDLE_ID": bundle_id,
+          }
+          missing = [name for name, value in fields.items() if not value]
+          if missing:
+              raise SystemExit("Missing repository secrets/variables: " + ", ".join(missing))
+          if not re.fullmatch(r"[0-9]+", app_id):
+              raise SystemExit("Invalid META_APP_ID (expected numeric Meta app ID)")
+          if not client_token.startswith("AR|" + app_id + "|") or len(client_token) <= len(app_id) + 4:
+              raise SystemExit("META_CLIENT_TOKEN must be in the full AR|<app ID>|<token> format")
+          if not re.fullmatch(r"[A-Za-z0-9]{10}", apple_team):
+              raise SystemExit("APPLE_TEAM_ID must be the 10-character Apple developer team ID")
+          if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*", bundle_id) or "." not in bundle_id:
+              raise SystemExit("Invalid IOS_BUNDLE_ID")
+          if not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*", url_scheme):
+              raise SystemExit("Invalid APP_LINK_URL_SCHEME")
+          values = {
+              "DEVELOPMENT_TEAM": apple_team,
+              "PRODUCT_BUNDLE_IDENTIFIER": bundle_id,
+              "META_APP_ID": app_id,
+              "CLIENT_TOKEN": client_token,
+              "APP_LINK_URL_SCHEME": url_scheme,
+          }
+          if any(any(ord(ch) in (10, 13) for ch in v) for v in values.values()):
+              raise SystemExit("Config values cannot contain newlines")
+          source = pathlib.Path("Config.xcconfig.example").read_text()
+          for key, value in values.items():
+              pattern = re.compile(r"^" + re.escape(key) + r"\s*=.*$", re.MULTILINE)
+              source, count = pattern.subn(lambda _m, val=value, k=key: k + " = " + val, source)
+              if count != 1:
+                  raise SystemExit("Expected exactly one entry for " + key)
+          pathlib.Path("Config.xcconfig").write_text(source)
+          pathlib.Path("OpenVision/Config/Config.swift").write_text(
+              pathlib.Path("OpenVision/Config/Config.swift.example").read_text()
+          )
+          print("Private Meta configuration prepared; sensitive values not printed.")
+          PY
+
+      - name: Cache Swift packages
+        uses: actions/cache@v6
+        with:
+          path: .spm
+          key: spm-${{ runner.os }}-${{ hashFiles('OpenVision.xcodeproj/project.pbxproj', 'project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build for device (sign later on Windows)
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project OpenVision.xcodeproj \
+            -scheme OpenVision \
+            -destination 'generic/platform=iOS' \
+            -clonedSourcePackagesDirPath .spm \
+            -derivedDataPath DerivedData \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+          | xcbeautify --renderer github-actions
+
+      - name: Package unsigned IPA for local signing
+        run: |
+          set -euo pipefail
+          APP="DerivedData/Build/Products/Debug-iphoneos/OpenVision.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/private-ipa/Payload"
+          ditto "$APP" "$RUNNER_TEMP/private-ipa/Payload/OpenVision.app"
+          (cd "$RUNNER_TEMP/private-ipa" && zip -qry "$GITHUB_WORKSPACE/Project-Aria-unsigned.ipa" Payload)
+          unzip -t "$GITHUB_WORKSPACE/Project-Aria-unsigned.ipa" > /dev/null
+
+      - name: Upload private IPA for Sideloadly
+        uses: actions/upload-artifact@v7
+        with:
+          name: Project-Aria-private-unsigned-iphoneos
+          path: Project-Aria-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 1
