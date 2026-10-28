@@ -9,9 +9,29 @@
 
 import SwiftUI
 import Speech
+import Combine
 
 @MainActor
 final class VoiceAgentViewModel: ObservableObject {
+
+    private var sessionObservers = Set<AnyCancellable>()
+
+    init() {
+        // Session progress must not depend on SwiftUI rendering while the screen is locked.
+        // Deliver after @Published has updated its stored value, just as onChange did.
+        TTSService.shared.$isSpeaking
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] speaking in self?.ttsSpeakingChanged(speaking) }
+            .store(in: &sessionObservers)
+        VoiceCommandService.shared.$state
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in self?.voiceStateChanged(state) }
+            .store(in: &sessionObservers)
+    }
 
     // MARK: - Dependencies
 

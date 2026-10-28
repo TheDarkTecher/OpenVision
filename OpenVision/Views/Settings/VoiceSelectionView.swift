@@ -14,6 +14,7 @@ struct VoiceSelectionView: View {
     @State private var voices: [AVSpeechSynthesisVoice] = []
     @State private var isTestingVoice: Bool = false
     @State private var testingVoiceId: String? = nil
+    @State private var previewSynthesizer = AVSpeechSynthesizer()
 
     // MARK: - Body
 
@@ -22,13 +23,13 @@ struct VoiceSelectionView: View {
             // System Default Option
             Section {
                 voiceRow(
-                    name: "System Default",
+                    name: "Automatic (best installed US English)",
                     quality: nil,
                     identifier: nil,
                     isSelected: settingsManager.settings.selectedVoiceIdentifier == nil
                 )
             } footer: {
-                Text("Uses the default voice from iOS Settings → Accessibility → Spoken Content")
+                Text("Prefers an installed Premium or Enhanced US English voice. Download more voices in iOS Accessibility settings, then reopen this list.")
             }
 
             // Premium Voices
@@ -104,6 +105,9 @@ struct VoiceSelectionView: View {
         .onAppear {
             loadVoices()
         }
+        .onDisappear {
+            previewSynthesizer.stopSpeaking(at: .immediate)
+        }
     }
 
     // MARK: - Voice Row
@@ -172,11 +176,11 @@ struct VoiceSelectionView: View {
            let voice = AVSpeechSynthesisVoice(identifier: identifier) {
             utterance.voice = voice
         } else {
-            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+            utterance.voice = TTSService.automaticVoice
         }
 
-        let synthesizer = AVSpeechSynthesizer()
-        synthesizer.speak(utterance)
+        previewSynthesizer.stopSpeaking(at: .immediate)
+        previewSynthesizer.speak(utterance)
 
         // Reset state after estimated speech duration
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

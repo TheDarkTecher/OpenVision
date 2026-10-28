@@ -4,7 +4,51 @@
 // really plays, so these run on a device or simulator with audio output.
 
 import XCTest
+import Combine
 @testable import OpenVision
+
+/// These transitions must work without mounting VoiceAgentView (including while UI is frozen).
+@MainActor
+final class VoiceSessionObservationTests: XCTestCase {
+    func testAppleSpeechTransitionsWithoutAView() async {
+        let speech = TTSService.shared
+        let original = speech.isSpeaking
+        defer { speech.isSpeaking = original }
+        speech.isSpeaking = false
+        let model = VoiceAgentViewModel()
+        let started = expectation(description: "speech starts without SwiftUI")
+        let finished = expectation(description: "speech ends without SwiftUI")
+        var sawStart = false
+        let observer = model.$agentState.sink { state in
+            if state == .speaking && !sawStart {
+                sawStart = true
+                started.fulfill()
+            } else if state == .idle && sawStart {
+                finished.fulfill()
+            }
+        }
+        speech.isSpeaking = true
+        await fulfillment(of: [started], timeout: 2)
+        speech.isSpeaking = false
+        await fulfillment(of: [finished], timeout: 2)
+        withExtendedLifetime(observer) {}
+    }
+
+    func testRecognitionTransitionsWithoutAView() async {
+        let voice = VoiceCommandService.shared
+        let original = voice.state
+        defer { voice.state = original }
+        voice.state = .idle
+        let model = VoiceAgentViewModel()
+        let processing = expectation(description: "recognition advances without SwiftUI")
+        let observer = model.$agentState.filter { $0 == .thinking }.prefix(1).sink { _ in
+            processing.fulfill()
+        }
+        voice.state = .processing
+        await fulfillment(of: [processing], timeout: 2)
+        withExtendedLifetime(observer) {}
+    }
+}
 
 @MainActor
 final class CloudTTSFallbackTests: XCTestCase {
