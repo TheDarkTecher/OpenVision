@@ -2,6 +2,9 @@
 
 ## What the source establishes
 
+- User-confirmed runtime selection: OpenAI backend, Apple speech, glasses microphone enabled. OpenClaw suspension therefore does not explain this user's failure. The exact OpenAI authentication mode/model remains device-local.
+- Apple speech completion and recognition-state transitions previously relied on SwiftUI `onChange`. Those transitions now have retained Combine subscriptions in the session view model, so reply completion can resume listening without a view render. This addresses an app-level background hazard for this configuration; it does not guarantee iOS will keep the microphone/recognizer/session alive.
+
 - Defaults: `AppSettings.aiBackend = .openClaw`, empty gateway URL/token, and `ttsEngine = .appleSystem`. The installed phone's saved settings and Keychain override these. Connection to glasses does not identify the AI backend. Record the selected backend, speech engine, model-ready status and microphone toggle from Settings; never copy keys/tokens into an issue.
 - Apple speech now automatically prefers the highest-quality installed en-US voice unless a valid explicit voice is selected. Preview retains its synthesizer while the view is open. Cloud/Kokoro failures can still fall back to Apple (`NeuralSpeech.active` and cloud fallback); a robotic voice does not prove which backend answered.
 - `VoiceAgentViewModel.onDisappear` stops speech recognition, including on tab navigation. `OpenClawService.handleAppBackground` transitions usable connections to suspended, then reconnects on foreground. These are explicit app policies, not proof iOS forbids background conversation.
@@ -13,7 +16,7 @@
 
 Use an explicit, user-started background conversation option, initially for a cloud backend and cloud/Apple speech. Move session ownership and speech callbacks out of view lifecycle hooks; preserve the active microphone only during that opted-in session. Suspend idle connections normally. Handle audio interruptions, route changes, socket recovery and returning to foreground before enabling it by default. Validate on a physical phone; no silent-audio keepalive or blanket GPU-guard removal. Camera streaming behavior must be tested separately on the pinned DAT SDK and Emerald; it is not an unconditional iOS prohibition or guarantee.
 
-This patch improves voice selection/preview and explains the existing lifecycle behavior. It does not enable an untested always-on mode.
+This patch improves voice selection/preview, decouples Apple speech and recognition transitions from view rendering, and explains the existing lifecycle behavior. It does not enable an untested always-on mode.
 
 ## Device test checklist
 

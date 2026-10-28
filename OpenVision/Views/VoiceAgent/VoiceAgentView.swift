@@ -93,9 +93,6 @@ struct VoiceAgentView: View {
             await viewModel.requestSpeechAuthorization()
         }
         // Observe TTS state changes
-        .onChange(of: ttsService.isSpeaking) { isSpeaking in
-            viewModel.ttsSpeakingChanged(isSpeaking)
-        }
         .onChange(of: kokoroTTS.isSpeaking) { speaking in
             viewModel.neuralSpeakingChanged(speaking)
         }
@@ -110,9 +107,6 @@ struct VoiceAgentView: View {
             viewModel.agentStateChanged(newState)
         }
         // Observe VoiceCommandService state changes
-        .onChange(of: voiceCommandService.state) { newState in
-            viewModel.voiceStateChanged(newState)
-        }
     }
 
     // MARK: - Top Bar
