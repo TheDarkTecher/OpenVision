@@ -74,6 +74,29 @@ jobs:
             DEVELOPMENT_TEAM= \
           | xcbeautify --renderer github-actions
 
+      # Packaging is deliberately unsigned. Local signing and installation from Windows
+      # is handled separately (e.g. Sideloadly); never store Apple credentials here.
+      - name: Package unsigned IPA for local signing
+        run: |
+          set -euo pipefail
+          APP="DerivedData/Build/Products/Debug-iphoneos/OpenVision.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/unsigned-ipa/Payload"
+          ditto "$APP" "$RUNNER_TEMP/unsigned-ipa/Payload/OpenVision.app"
+          (cd "$RUNNER_TEMP/unsigned-ipa" && zip -qry "$GITHUB_WORKSPACE/OpenVision-unsigned.ipa" Payload)
+          unzip -t "$GITHUB_WORKSPACE/OpenVision-unsigned.ipa" >/dev/null
+          shasum -a 256 "$GITHUB_WORKSPACE/OpenVision-unsigned.ipa" > "$GITHUB_WORKSPACE/OpenVision-unsigned.ipa.sha256"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: OpenVision-unsigned-iphoneos
+          path: |
+            OpenVision-unsigned.ipa
+            OpenVision-unsigned.ipa.sha256
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v7
