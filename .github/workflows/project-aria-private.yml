@@ -72,6 +72,8 @@ jobs:
               raise SystemExit("Invalid IOS_BUNDLE_ID")
           if not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*", url_scheme):
               raise SystemExit("Invalid APP_LINK_URL_SCHEME")
+          # Also mask the raw token segment if a build tool prints only that part.
+          print("::add-mask::" + client_token.rsplit("|", 1)[-1])
           values = {
               "DEVELOPMENT_TEAM": apple_team,
               "PRODUCT_BUNDLE_IDENTIFIER": bundle_id,
@@ -116,6 +118,44 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY= \
           | xcbeautify --renderer github-actions
+
+      - name: Verify embedded device configuration without printing credentials
+        env:
+          EXPECTED_APP_ID: ${{ secrets.META_APP_ID }}
+          EXPECTED_CLIENT_TOKEN: ${{ secrets.META_CLIENT_TOKEN }}
+          EXPECTED_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          EXPECTED_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+          EXPECTED_SCHEME: ${{ vars.APP_LINK_URL_SCHEME }}
+        run: |
+          python3 - <<'PYVERIFY'
+          import os
+          import pathlib
+          import plistlib
+
+          app = pathlib.Path("DerivedData/Build/Products/Debug-iphoneos/OpenVision.app")
+          with (app / "Info.plist").open("rb") as source:
+              info = plistlib.load(source)
+          dat = info.get("MWDAT", {})
+          expected = {
+              "MetaAppID": os.environ["EXPECTED_APP_ID"].strip(),
+              "ClientToken": os.environ["EXPECTED_CLIENT_TOKEN"].strip(),
+              "TeamID": os.environ["EXPECTED_TEAM_ID"].strip(),
+              "AppLinkURLScheme": (os.environ["EXPECTED_SCHEME"].strip() or "openvision") + "://",
+          }
+          for key, value in expected.items():
+              if dat.get(key) != value:
+                  raise SystemExit("Built Info.plist mismatch: MWDAT." + key)
+          if info.get("CFBundleIdentifier") != os.environ["EXPECTED_BUNDLE_ID"].strip():
+              raise SystemExit("Built bundle identifier does not match private configuration")
+          schemes = [scheme for entry in info.get("CFBundleURLTypes", [])
+                     for scheme in entry.get("CFBundleURLSchemes", [])]
+          if expected["AppLinkURLScheme"][:-3] not in schemes:
+              raise SystemExit("Meta callback scheme is not registered by the built app")
+          if info.get("CFBundleSupportedPlatforms") != ["iPhoneOS"]:
+              raise SystemExit("Expected a physical iPhone build")
+          print("Embedded Meta values, callback scheme, bundle ID and iPhoneOS platform verified.")
+          print("Local signing identity and hardware registration still require device validation.")
+          PYVERIFY
 
       - name: Package unsigned IPA for local signing
         run: |

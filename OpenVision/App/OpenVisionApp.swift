@@ -69,7 +69,8 @@ struct OpenVisionApp: App {
 
     /// Handle URL callback from Meta AI app for glasses registration
     private func handleURL(_ url: URL) {
-        print("[OpenVisionApp] Received URL: \(url)")
+        // Callback query parameters can contain registration credentials.
+        print("[OpenVisionApp] Received app callback")
 
         Task {
             do {
