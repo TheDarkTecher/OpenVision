@@ -50,8 +50,14 @@ final class TTSService: NSObject, ObservableObject {
             return voice
         }
 
-        // Fall back to default English voice
-        return AVSpeechSynthesisVoice(language: "en-US")
+        return automaticVoice
+    }
+
+    /// Prefer an installed Premium/Enhanced US English voice without overriding an explicit
+    /// choice. Never download assets or switch the user's speech provider automatically.
+    static var automaticVoice: AVSpeechSynthesisVoice? {
+        availableVoices().first { $0.language == "en-US" }
+            ?? AVSpeechSynthesisVoice(language: "en-US")
     }
 
     /// Get all available voices for a language

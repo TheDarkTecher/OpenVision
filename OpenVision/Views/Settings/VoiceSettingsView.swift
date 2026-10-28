@@ -15,7 +15,7 @@ struct VoiceSettingsView: View {
     private var selectedVoiceName: String {
         guard let identifier = settingsManager.settings.selectedVoiceIdentifier,
               let voice = AVSpeechSynthesisVoice(identifier: identifier) else {
-            return "System Default"
+            return TTSService.automaticVoice?.name ?? "Automatic"
         }
         return voice.name
     }
@@ -97,6 +97,14 @@ struct VoiceSettingsView: View {
             }
 
             // Conversation Section
+            Section {
+                Text("Start listening with OpenVision open. Switching tabs stops listening. OpenClaw pauses its connection when the phone locks or the app backgrounds; on-device AI also requires the foreground. Background audio support does not guarantee an always-on assistant.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("Lock Screen & Background Use")
+            }
+
             Section {
                 Picker("Auto-End Timeout", selection: $settingsManager.settings.conversationTimeout) {
                     Text("15 seconds").tag(TimeInterval(15))
