@@ -10,6 +10,7 @@ name: CI
 # plain `macos-*` labels — "larger" runners are billed even for public repos.
 
 on:
+  workflow_dispatch:  # Allow manually starting a build from the Actions tab
   pull_request:
   push:
     branches: [main]
